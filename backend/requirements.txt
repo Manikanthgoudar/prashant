@@ -1,0 +1,9 @@
+fastapi[standard]
+sqlmodel
+pydantic
+sqlalchemy
+sqlite-migrate
+uvicorn
+python-multipart
+python-jose[cryptography]
+passlib[bcrypt]
