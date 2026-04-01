@@ -1,24 +1,35 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Backend API (MySQL + Next.js route handlers)
+
+1) Install deps: `npm install`
+2) Create DB and tables: `mysql -u mahi -p < ../backend/schema.sql` (database: `foodspot`).
+3) Copy `.env.example` to `.env.local` and set `DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME/JWT_SECRET`.
+4) Start dev server: `npm run dev` (uses the same-origin API under `/api`).
+
+Key endpoints (all JSON):
+- `GET /api/categories` – list categories
+- `GET /api/products?category_id=&q=` – list/search products
+- `GET /api/product/:id` – product with category
+- `GET /api/categories/:id/products` – products for a category
+- `POST /api/orders` – create order `{ userId?, items:[{productId, quantity, color?}] }`
+- `GET /api/orders/:id` – order detail with items
+- `POST /api/signup` – `{ name, email, password }`
+- `POST /api/login` – `{ email, password }`
+- `GET /api/me` – bearer token in `Authorization`
+- `POST /api/seed` – seeds sample categories/products (send `x-seed-token: <SEED_TOKEN>` or `?token=`)
+
 ## Getting Started
 
-First, run the development server:
+Run the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
 ## Learn More
 

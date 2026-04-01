@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import Confetti from 'react-confetti'
+import { createOrder } from '@/lib/api'
 
 type CheckoutStep = 'cart' | 'address' | 'payment' | 'confirmation'
 type PaymentMethod = 'cod' | 'upi' | 'netbanking'
@@ -132,49 +133,30 @@ export default function Cart() {
     setIsProcessing(true)
     const delivery = getDeliveryDate()
 
-    const orderId = 'STL' + Date.now().toString().slice(-8)
-    
-    // Get user email if logged in
+    // Get user info if logged in
     const userStr = localStorage.getItem('stella-user')
-    const userEmail = userStr ? JSON.parse(userStr).email : undefined
+    const userData = userStr ? JSON.parse(userStr) : null
+    const token = userData?.token
 
     try {
-      // Call backend to create order
-      const response = await fetch('http://localhost:8000/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items: items.map(i => ({
-            product_id: i.id,
-            name: i.name,
-            price: i.finalPrice,
-            quantity: i.quantity || 1,
-            color: i.selectedColor || null,
-          })),
-          total_price: grandTotal,
-          address: {
-            fullName: address.fullName,
-            phone: address.phone,
-            addressLine1: address.addressLine1,
-            addressLine2: address.addressLine2,
-            city: address.city,
-            state: address.state,
-            pincode: address.pincode,
-          },
-          payment_method: paymentMethod,
-          payment_details: paymentMethod === 'upi' ? selectedUPI : selectedBank,
-          user_email: userEmail,
-        }),
-      })
-
-      if (!response.ok) throw new Error('Failed to create order')
-      const data = await response.json()
+      const data = await createOrder({
+        userId: userData?.id,
+        items: items.map(i => ({
+          productId: i.id,
+          quantity: i.quantity || 1,
+          color: i.selectedColor || null,
+        })),
+        total_price: grandTotal,
+        address,
+        payment_method: paymentMethod,
+        payment_details: paymentMethod === 'upi' ? selectedUPI : selectedBank,
+      }, token)
 
       setOrderDetails({
-        orderId: data.order_id,
-        orderDate: data.order_date,
-        deliveryMin: data.estimated_delivery_min,
-        deliveryMax: data.estimated_delivery_max,
+        orderId: data.orderId || data.order_id,
+        orderDate: data.created_at,
+        deliveryMin: delivery.min,
+        deliveryMax: delivery.max,
         paymentMethod,
         selectedUPI,
         selectedBank,

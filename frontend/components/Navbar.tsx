@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 
 export default function Navbar() {
   const [cartCount, setCartCount] = useState(0)
-  const [user, setUser] = useState<{ name?: string, email?: string } | null>(null)
+  const [user, setUser] = useState<{ id?: number, name?: string, email?: string } | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const router = useRouter()
 
@@ -146,9 +146,9 @@ export default function Navbar() {
 
                           {/* Menu Items */}
                           <div style={{ padding: '8px 0', display: 'flex', flexDirection: 'column' }}>
-                            <Link 
-                              href="/signup" 
-                              onClick={() => setMenuOpen(false)} 
+                            <Link
+                              href="/profile"
+                              onClick={() => setMenuOpen(false)}
                               style={{ padding: '12px 16px', color: 'var(--text-main)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', borderBottom: '1px solid var(--border-light)', transition: 'background-color 0.2s' }}
                               onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-soft)')}
                               onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
