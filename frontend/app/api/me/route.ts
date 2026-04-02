@@ -4,8 +4,6 @@ import { tokenFromAuthHeader, verifyToken } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
-type UserRow = { id: number; name: string; email: string }
-
 export async function GET(req: NextRequest) {
     const token = tokenFromAuthHeader(req.headers)
     if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -14,7 +12,13 @@ export async function GET(req: NextRequest) {
     if (!payload) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     try {
-        const users = await query<any>('SELECT id, name, email FROM users WHERE id = ?', [payload.id])
+        const users = await query<any>(
+            `SELECT u.id, u.name, u.email, u.role, v.store_name
+             FROM users u
+             LEFT JOIN vendors v ON v.user_id = u.id
+             WHERE u.id = ?`,
+            [payload.id]
+        )
         const user = users[0]
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 

@@ -9,19 +9,21 @@ interface HeroProps {
 }
 
 const CATEGORY_IMAGES: Record<string, string> = {
+  'Men': 'https://images.unsplash.com/photo-1617127365659-c47fa864d8bc?w=400&h=300&fit=crop',
+  'Women': 'https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?w=400&h=300&fit=crop',
+  'Kids': 'https://images.unsplash.com/photo-1503919005314-30d93d07d823?w=400&h=300&fit=crop',
   'Electronics': 'https://images.unsplash.com/photo-1498049794561-7780e7231661?w=400&h=300&fit=crop',
-  'Fashion': 'https://images.unsplash.com/photo-1445205170230-053b83016050?w=400&h=300&fit=crop',
-  'Footwear': 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400&h=300&fit=crop',
-  'Furniture': 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=400&h=300&fit=crop',
-  'Beauty': 'https://images.unsplash.com/photo-1596462502278-27bfdc403348?w=400&h=300&fit=crop',
+  'Home & Living': 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=400&h=300&fit=crop',
+  'Beauty & Personal Care': 'https://images.unsplash.com/photo-1596462502278-27bfdc403348?w=400&h=300&fit=crop',
 }
 
 const CATEGORY_SUBTITLES: Record<string, string> = {
+  'Men': 'Tops, Bottoms & Footwear',
+  'Women': 'Ethnic, Western & Beauty',
+  'Kids': 'Clothing, Toys & Daily Care',
   'Electronics': 'Mobiles, Laptops & More',
-  'Fashion': 'Men, Women & Kids',
-  'Footwear': 'Sneakers, Formals & More',
-  'Furniture': 'Living Room, Bedroom & Decor',
-  'Beauty': 'Skincare, Makeup & Fragrance',
+  'Home & Living': 'Furniture, Kitchen & Decor',
+  'Beauty & Personal Care': 'Skincare, Makeup & Haircare',
 }
 
 export default function Hero({ onCategorySelected }: HeroProps) {

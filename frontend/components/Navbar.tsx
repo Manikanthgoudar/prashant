@@ -4,10 +4,21 @@ import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
+import { fetchCart, fetchWishlist } from '@/lib/api'
+
+type SessionUser = {
+  id: number
+  name: string
+  email: string
+  token: string
+  role: 'admin' | 'vendor' | 'customer'
+  store_name?: string | null
+}
 
 export default function Navbar() {
   const [cartCount, setCartCount] = useState(0)
-  const [user, setUser] = useState<{ id?: number, name?: string, email?: string } | null>(null)
+  const [wishlistCount, setWishlistCount] = useState(0)
+  const [user, setUser] = useState<SessionUser | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const router = useRouter()
 
@@ -24,23 +35,46 @@ export default function Navbar() {
   }
 
   useEffect(() => {
-    const updateCart = () => {
-      const cart = JSON.parse(localStorage.getItem('stella-cart') || '[]')
-      setCartCount(cart.length)
+    const loadSession = async () => {
+      const userText = localStorage.getItem('stella-user')
+      const parsed = userText ? JSON.parse(userText) : null
+      setUser(parsed)
+
+      const localCart = JSON.parse(localStorage.getItem('stella-cart') || '[]')
+      const localWishlist = JSON.parse(localStorage.getItem('stella-wishlist') || '[]')
+
+      if (!parsed?.token) {
+        setCartCount(localCart.length)
+        setWishlistCount(localWishlist.length)
+        return
+      }
+
+      try {
+        const [cartRes, wishlistRes] = await Promise.all([
+          fetchCart(parsed.token),
+          fetchWishlist(parsed.token)
+        ])
+        setCartCount((cartRes.items || []).length)
+        setWishlistCount((wishlistRes.items || []).length)
+      } catch {
+        setCartCount(localCart.length)
+        setWishlistCount(localWishlist.length)
+      }
     }
 
-    const updateUser = () => {
-      const u = localStorage.getItem('stella-user')
-      setUser(u ? JSON.parse(u) : null)
+    const refreshSession = () => {
+      loadSession().catch(() => undefined)
     }
 
-    updateCart()
-    updateUser()
-    window.addEventListener('stella-cart-update', updateCart)
-    window.addEventListener('stella-user-update', updateUser)
+    refreshSession()
+    window.addEventListener('stella-cart-update', refreshSession)
+    window.addEventListener('stella-user-update', refreshSession)
+    window.addEventListener('stella-wishlist-update', refreshSession)
+
     return () => {
-      window.removeEventListener('stella-cart-update', updateCart)
-      window.removeEventListener('stella-user-update', updateUser)
+      window.removeEventListener('stella-cart-update', refreshSession)
+      window.removeEventListener('stella-user-update', refreshSession)
+      window.removeEventListener('stella-wishlist-update', refreshSession)
     }
   }, [])
 
@@ -55,21 +89,25 @@ export default function Navbar() {
 
   const handleLogout = () => {
     localStorage.removeItem('stella-user')
+    localStorage.removeItem('stella-cart')
     window.dispatchEvent(new Event('stella-user-update'))
     setMenuOpen(false)
     router.push('/')
   }
 
+  const dashboardLink = user?.role === 'admin' ? '/admin' : user?.role === 'vendor' ? '/vendor' : '/user'
+  const dashboardLabel = user?.role === 'admin' ? 'Admin Dashboard' : user?.role === 'vendor' ? 'Vendor Dashboard' : 'User Dashboard'
+
   return (
     <>
       <div className="top-announcement">
         <div className="container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '24px' }}>
-          <span>🎉 Stella Spring Sale — 15% Off All Collections</span>
+          <span>Marketplace Live: Multi-vendor onboarding is instant</span>
           <Link href="/" style={{ color: '#B08D57', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: '2px' }}>
-            Shop Now
+            Explore Products
           </Link>
           <span style={{ opacity: 0.4 }}>|</span>
-          <span>Free Delivery on Orders Above ₹499</span>
+          <span>Flat Rs 50 delivery below Rs 500, free above threshold</span>
         </div>
       </div>
 
@@ -82,6 +120,8 @@ export default function Navbar() {
 
             <div className="nav-links">
               <Link href="/" className="nav-link active">Home</Link>
+              {user?.role === 'vendor' && <Link href="/vendor" className="nav-link">Vendor</Link>}
+              {user?.role === 'admin' && <Link href="/admin" className="nav-link">Admin</Link>}
               <Link href="/about" className="nav-link">About</Link>
               <Link href="/contact" className="nav-link">Contact</Link>
               {!user && <Link href="/signup" className="nav-link">Sign Up</Link>}
@@ -100,6 +140,13 @@ export default function Navbar() {
                   <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
                 </svg>
                 {cartCount > 0 && <div className="cart-count">{cartCount}</div>}
+              </Link>
+
+              <Link href="/profile" className="action-icon" style={{ textDecoration: 'none' }} title="Wishlist">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                </svg>
+                {wishlistCount > 0 && <div className="cart-count">{wishlistCount}</div>}
               </Link>
 
               <div style={{ position: 'relative' }}>
@@ -141,11 +188,21 @@ export default function Navbar() {
                             <div>
                               <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{user.name}</div>
                               <div style={{ fontSize: '0.78rem', opacity: 0.9 }}>{user.email}</div>
+                              <div style={{ fontSize: '0.72rem', opacity: 0.9, textTransform: 'capitalize' }}>{user.role}</div>
                             </div>
                           </div>
 
                           {/* Menu Items */}
                           <div style={{ padding: '8px 0', display: 'flex', flexDirection: 'column' }}>
+                            <Link
+                              href={dashboardLink}
+                              onClick={() => setMenuOpen(false)}
+                              style={{ padding: '12px 16px', color: 'var(--text-main)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', borderBottom: '1px solid var(--border-light)', transition: 'background-color 0.2s' }}
+                              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-soft)')}
+                              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                            >
+                              <span>📊</span> {dashboardLabel}
+                            </Link>
                             <Link
                               href="/profile"
                               onClick={() => setMenuOpen(false)}
@@ -153,7 +210,7 @@ export default function Navbar() {
                               onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-soft)')}
                               onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                             >
-                              <span>👤</span> My Profile
+                              <span>🧾</span> Orders & Wishlist
                             </Link>
                             <button
                               onClick={handleLogout}

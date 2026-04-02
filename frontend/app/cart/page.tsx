@@ -1,86 +1,364 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { motion, AnimatePresence } from 'framer-motion'
-import Confetti from 'react-confetti'
-import { createOrder } from '@/lib/api'
+import { useRouter } from 'next/navigation'
+import {
+  addWishlistItem,
+  clearCart,
+  createOrder,
+  fetchAddresses,
+  fetchCart,
+  getPaymentOptions,
+  removeCartItem,
+  saveAddress,
+  setDefaultAddress,
+  updateCartItem,
+  verifyRazorpayPayment
+} from '@/lib/api'
 
 type CheckoutStep = 'cart' | 'address' | 'payment' | 'confirmation'
-type PaymentMethod = 'cod' | 'upi' | 'netbanking'
-type UPIApp = 'googlepay' | 'phonepe' | 'paytm' | 'other'
-type PaymentStep = 'selection' | 'verification' | 'pin' | 'processing' | 'success'
+
+type CartItem = {
+  id: number
+  product_id: number
+  variant_id?: number | null
+  quantity: number
+  product_name: string
+  image_url: string
+  effective_price: number
+  vendor_store_name?: string
+  color?: string
+  size?: string
+}
+
+type Address = {
+  id: number
+  label: string
+  full_name: string
+  phone: string
+  line1: string
+  line2?: string
+  city: string
+  state: string
+  pincode: string
+  country: string
+  is_default: number
+}
+
+type SessionUser = {
+  id: number
+  name: string
+  email: string
+  token: string
+  role: 'admin' | 'vendor' | 'customer'
+}
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: any) => { open: () => void }
+  }
+}
 
 export default function Cart() {
-  const [items, setItems] = useState<any[]>([])
+  const router = useRouter()
+  const [token, setToken] = useState('')
+  const [items, setItems] = useState<CartItem[]>([])
+  const [addresses, setAddresses] = useState<Address[]>([])
+  const [selectedAddressId, setSelectedAddressId] = useState<number | null>(null)
   const [step, setStep] = useState<CheckoutStep>('cart')
-  const [paymentStep, setPaymentStep] = useState<PaymentStep>('selection')
-  const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [loading, setLoading] = useState(true)
 
-  // Address form
   const [address, setAddress] = useState({
-    fullName: '',
+    label: 'Home',
+    full_name: '',
     phone: '',
-    addressLine1: '',
-    addressLine2: '',
+    line1: '',
+    line2: '',
     city: '',
     state: '',
-    pincode: '',
+    pincode: ''
   })
 
-  // Payment
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cod')
-  const [selectedUPI, setSelectedUPI] = useState<UPIApp>('googlepay')
-  const [upiId, setUpiId] = useState('')
-  const [selectedBank, setSelectedBank] = useState('')
-  const [upiPin, setUpiPin] = useState('')
+  const [saveAsDefault, setSaveAsDefault] = useState(true)
+  const [notes, setNotes] = useState('')
+  const [couponDiscount, setCouponDiscount] = useState(0)
+  const [billingSameAsDelivery, setBillingSameAsDelivery] = useState(true)
 
-  // Order confirmation
+  const paymentOptions = getPaymentOptions()
+  const [paymentMethod, setPaymentMethod] = useState<'card' | 'upi' | 'netbanking' | 'wallet' | 'cod'>('cod')
+
   const [orderDetails, setOrderDetails] = useState<any>(null)
-  const [isProcessing, setIsProcessing] = useState(false)
-  const [showConfetti, setShowConfetti] = useState(false)
+
+  const loadRazorpayScript = async () => {
+    if (window.Razorpay) return true
+
+    return new Promise<boolean>((resolve) => {
+      const script = document.createElement('script')
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js'
+      script.async = true
+      script.onload = () => resolve(true)
+      script.onerror = () => resolve(false)
+      document.body.appendChild(script)
+    })
+  }
+
+  const openRazorpayCheckout = async (args: {
+    order: any
+    session: SessionUser
+    addressId: number
+  }) => {
+    const { order, session, addressId } = args
+    const selectedAddress = addresses.find((entry) => Number(entry.id) === Number(addressId))
+
+    const loaded = await loadRazorpayScript()
+    if (!loaded || !window.Razorpay) {
+      throw new Error('Unable to load Razorpay checkout')
+    }
+
+    const RazorpayCtor = window.Razorpay
+    if (!RazorpayCtor) {
+      throw new Error('Razorpay checkout is unavailable')
+    }
+
+    const paymentPayload = await new Promise<{
+      razorpay_order_id: string
+      razorpay_payment_id: string
+      razorpay_signature: string
+    }>((resolve, reject) => {
+      const razorpay = new RazorpayCtor({
+        key: order.razorpay?.key_id,
+        amount: order.razorpay?.amount,
+        currency: order.razorpay?.currency,
+        name: order.razorpay?.name || 'Stella Marketplace',
+        description: order.razorpay?.description || `Order #${order.order_id}`,
+        order_id: order.razorpay?.order_id,
+        prefill: {
+          name: selectedAddress?.full_name || session.name,
+          email: session.email,
+          contact: selectedAddress?.phone || ''
+        },
+        theme: { color: '#4A7C59' },
+        handler: (response: any) => {
+          resolve({
+            razorpay_order_id: response.razorpay_order_id,
+            razorpay_payment_id: response.razorpay_payment_id,
+            razorpay_signature: response.razorpay_signature
+          })
+        },
+        modal: {
+          ondismiss: () => reject(new Error('Payment cancelled by user'))
+        }
+      })
+
+      razorpay.open()
+    })
+
+    await verifyRazorpayPayment(session.token, {
+      order_id: Number(order.order_id),
+      razorpay_order_id: paymentPayload.razorpay_order_id,
+      razorpay_payment_id: paymentPayload.razorpay_payment_id,
+      razorpay_signature: paymentPayload.razorpay_signature
+    })
+
+    return paymentPayload
+  }
 
   useEffect(() => {
-    const cart = JSON.parse(localStorage.getItem('stella-cart') || '[]')
-    setItems(cart)
-  }, [])
+    const session = localStorage.getItem('stella-user')
+    if (!session) {
+      router.replace('/signup')
+      return
+    }
 
-  const removeItem = (cartId: number) => {
-    const updated = items.filter(i => i.cartId !== cartId)
-    setItems(updated)
-    localStorage.setItem('stella-cart', JSON.stringify(updated))
+    const parsed = JSON.parse(session)
+    if (!parsed?.token) {
+      router.replace('/signup')
+      return
+    }
+
+    setToken(parsed.token)
+
+    const loadData = async () => {
+      setLoading(true)
+      try {
+        const [cartRes, addressRes] = await Promise.all([
+          fetchCart(parsed.token),
+          fetchAddresses(parsed.token)
+        ])
+
+        setItems(cartRes.items || [])
+        setAddresses(addressRes.addresses || [])
+        const defaultAddress = (addressRes.addresses || []).find((item: Address) => Number(item.is_default) === 1)
+        if (defaultAddress) {
+          setSelectedAddressId(Number(defaultAddress.id))
+        }
+      } catch (err) {
+        console.error(err)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadData().catch((err) => console.error(err))
+  }, [router])
+
+  const subtotal = useMemo(() => {
+    return items.reduce((acc, item) => acc + Number(item.effective_price || 0) * Number(item.quantity || 1), 0)
+  }, [items])
+
+  const deliveryCharge = subtotal >= 500 ? 0 : 50
+  const total = subtotal + deliveryCharge - couponDiscount
+
+  const refreshCart = async () => {
+    if (!token) return
+    const cartRes = await fetchCart(token)
+    setItems(cartRes.items || [])
     window.dispatchEvent(new Event('stella-cart-update'))
   }
 
-  const updateQuantity = (cartId: number, delta: number) => {
-    const updated = items.map(item => {
-      if (item.cartId === cartId) {
-        const newQty = Math.max(1, (item.quantity || 1) + delta)
-        return { ...item, quantity: newQty }
-      }
-      return item
-    })
-    setItems(updated)
-    localStorage.setItem('stella-cart', JSON.stringify(updated))
+  const removeItem = async (cartItemId: number) => {
+    if (!token) return
+    await removeCartItem(token, cartItemId)
+    await refreshCart()
   }
 
-  const total = items.reduce((acc, i) => acc + (i.finalPrice * (i.quantity || 1)), 0)
-  const deliveryCharge = total > 499 ? 0 : 49
-  const grandTotal = total + deliveryCharge
+  const moveToWishlist = async (item: CartItem) => {
+    if (!token) return
+    await addWishlistItem(token, { product_id: item.product_id, variant_id: item.variant_id || null })
+    await removeCartItem(token, item.id)
+    await refreshCart()
+    window.dispatchEvent(new Event('stella-wishlist-update'))
+  }
 
-  // Calculate delivery date (5-7 days from now)
-  const getDeliveryDate = () => {
-    const now = new Date()
-    const minDate = new Date(now)
-    minDate.setDate(now.getDate() + 5)
-    const maxDate = new Date(now)
-    maxDate.setDate(now.getDate() + 7)
-    const options: Intl.DateTimeFormatOptions = { weekday: 'long', month: 'long', day: 'numeric' }
-    return {
-      min: minDate.toLocaleDateString('en-IN', options),
-      max: maxDate.toLocaleDateString('en-IN', options),
-      minRaw: minDate,
-      maxRaw: maxDate,
+  const updateQuantity = async (cartItemId: number, next: number) => {
+    if (!token) return
+    if (next < 1) return
+    await updateCartItem(token, { cart_item_id: cartItemId, quantity: next })
+    await refreshCart()
+  }
+
+  const clearEntireCart = async () => {
+    if (!token) return
+    await clearCart(token)
+    await refreshCart()
+  }
+
+  const saveNewAddress = async () => {
+    if (!token) return
+
+    if (!address.full_name || !address.phone || !address.line1 || !address.city || !address.state || !address.pincode) {
+      alert('Please fill all required address fields')
+      return
+    }
+
+    const response = await saveAddress(token, {
+      label: address.label,
+      full_name: address.full_name,
+      phone: address.phone,
+      line1: address.line1,
+      line2: address.line2,
+      city: address.city,
+      state: address.state,
+      pincode: address.pincode,
+      country: 'India',
+      is_default: saveAsDefault
+    })
+
+    setAddresses(response.addresses || [])
+    const newest = (response.addresses || [])[0]
+    if (newest) {
+      setSelectedAddressId(Number(newest.id))
+    }
+  }
+
+  const makeSureAddress = async (): Promise<number | null> => {
+    if (selectedAddressId) {
+      if (saveAsDefault) {
+        await setDefaultAddress(token, selectedAddressId)
+      }
+      return selectedAddressId
+    }
+
+    await saveNewAddress()
+    const listRes = await fetchAddresses(token)
+    const list = listRes.addresses || []
+    if (!list.length) return null
+    const selected = list.find((item: Address) => Number(item.is_default) === 1) || list[0]
+    setAddresses(list)
+    setSelectedAddressId(Number(selected.id))
+    return Number(selected.id)
+  }
+
+  const handlePlaceOrder = async () => {
+    if (!token || !items.length) return
+
+    setIsProcessing(true)
+    try {
+      const sessionRaw = localStorage.getItem('stella-user')
+      const session = sessionRaw ? (JSON.parse(sessionRaw) as SessionUser) : null
+      if (!session?.token) {
+        throw new Error('Please sign in again to continue checkout')
+      }
+
+      const addressId = await makeSureAddress()
+      if (!addressId) {
+        alert('Please provide delivery address')
+        setIsProcessing(false)
+        return
+      }
+
+      const payload = {
+        address_id: addressId,
+        items: items.map((item) => ({
+          product_id: item.product_id,
+          variant_id: item.variant_id || null,
+          quantity: item.quantity
+        })),
+        payment_method: paymentMethod,
+        contact_number: address.phone || undefined,
+        order_notes: notes || undefined,
+        coupon_discount: couponDiscount,
+        billing_same_as_delivery: billingSameAsDelivery
+      }
+
+      const order = await createOrder(payload, token)
+
+      let finalOrder = order
+      if (order?.requires_payment && order?.payment_provider === 'razorpay') {
+        let verified: {
+          razorpay_order_id: string
+          razorpay_payment_id: string
+          razorpay_signature: string
+        }
+        try {
+          verified = await openRazorpayCheckout({ order, session, addressId })
+        } catch (checkoutErr: any) {
+          if (checkoutErr?.message === 'Payment cancelled by user') {
+            throw new Error('Payment was cancelled. Order is created as pending in your dashboard.')
+          }
+          throw new Error(checkoutErr?.message || 'Razorpay checkout failed')
+        }
+
+        finalOrder = {
+          ...order,
+          payment_status: 'paid',
+          payment_reference: verified.razorpay_payment_id
+        }
+      }
+
+      setOrderDetails(finalOrder)
+      await clearCart(token)
+      await refreshCart()
+      setStep('confirmation')
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    } catch (err: any) {
+      console.error(err)
+      alert(err.message || 'Failed to place order')
+      await refreshCart().catch(() => undefined)
+    } finally {
+      setIsProcessing(false)
     }
   }
 
@@ -90,92 +368,14 @@ export default function Cart() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const handleProceedToPayment = (e: React.FormEvent) => {
+  const handleProceedToPayment = async (e: React.FormEvent) => {
     e.preventDefault()
+    const addressId = await makeSureAddress()
+    if (!addressId) {
+      alert('Please select or add an address')
+      return
+    }
     setStep('payment')
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-  }
-
-  const handleInitiatePayment = () => {
-    if (paymentMethod === 'cod') {
-      // COD doesn't need modal, go straight to processing
-      handlePlaceOrder()
-    } else {
-      // Open payment modal for UPI/NetBanking
-      setShowPaymentModal(true)
-      setPaymentStep('verification')
-      // Start verification
-      setTimeout(() => {
-        setPaymentStep('pin')
-      }, 1500)
-    }
-  }
-
-  const handleUPIPinSubmit = () => {
-    if (upiPin.length !== 6) {
-      alert('Please enter a 6-digit PIN')
-      return
-    }
-    setPaymentStep('processing')
-    // Simulate processing
-    setTimeout(() => {
-      setPaymentStep('success')
-      setShowConfetti(true)
-      // Auto-close modal and proceed after 2 seconds
-      setTimeout(() => {
-        setShowPaymentModal(false)
-        handlePlaceOrder()
-      }, 2000)
-    }, 2000)
-  }
-
-  const handlePlaceOrder = async () => {
-    setIsProcessing(true)
-    const delivery = getDeliveryDate()
-
-    // Get user info if logged in
-    const userStr = localStorage.getItem('stella-user')
-    const userData = userStr ? JSON.parse(userStr) : null
-    const token = userData?.token
-
-    try {
-      const data = await createOrder({
-        userId: userData?.id,
-        items: items.map(i => ({
-          productId: i.id,
-          quantity: i.quantity || 1,
-          color: i.selectedColor || null,
-        })),
-        total_price: grandTotal,
-        address,
-        payment_method: paymentMethod,
-        payment_details: paymentMethod === 'upi' ? selectedUPI : selectedBank,
-      }, token)
-
-      setOrderDetails({
-        orderId: data.orderId || data.order_id,
-        orderDate: data.created_at,
-        deliveryMin: delivery.min,
-        deliveryMax: delivery.max,
-        paymentMethod,
-        selectedUPI,
-        selectedBank,
-        address,
-        items: [...items],
-        total: grandTotal,
-      })
-    } catch (err) {
-      console.error('Order creation error:', err)
-      alert('Failed to place order. Please try again.')
-      setIsProcessing(false)
-      return
-    }
-
-    localStorage.removeItem('stella-cart')
-    window.dispatchEvent(new Event('stella-cart-update'))
-    setItems([])
-    setStep('confirmation')
-    setIsProcessing(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -187,106 +387,16 @@ export default function Cart() {
   ]
   const currentStepIndex = stepLabels.findIndex(s => s.key === step)
 
+  if (loading) {
+    return (
+      <main className="container" style={{ padding: '100px 2rem' }}>
+        <p>Loading your checkout...</p>
+      </main>
+    )
+  }
+
   return (
     <div className="container" style={{ padding: '2rem 2rem 4rem' }}>
-      {/* Payment Modal */}
-      <AnimatePresence>
-        {showPaymentModal && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black bg-opacity-50 z-40"
-              onClick={() => !showConfetti && setShowPaymentModal(false)}
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              className="fixed inset-0 flex items-center justify-center z-50 p-4"
-            >
-              <div className="bg-white rounded-lg shadow-2xl max-w-md w-full overflow-hidden">
-                {/* Verification Step */}
-                {paymentStep === 'verification' && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-8 text-center">
-                    <div className="mb-4 flex justify-center">
-                      <motion.div
-                        animate={{ rotate: 360 }}
-                        transition={{ repeat: Infinity, duration: 1.5, ease: 'linear' }}
-                        className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full"
-                      />
-                    </div>
-                    <p className="text-gray-700 font-semibold mb-2">Verifying VPA...</p>
-                    <p className="text-sm text-gray-500">{selectedUPI === 'googlepay' ? 'Google Pay' : selectedUPI === 'phonepe' ? 'PhonePe' : 'Paytm'}</p>
-                  </motion.div>
-                )}
-
-                {/* PIN Entry Step */}
-                {paymentStep === 'pin' && (
-                  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="p-8">
-                    <h2 className="text-xl font-bold text-gray-800 mb-2">Enter UPI PIN</h2>
-                    <p className="text-sm text-gray-500 mb-6">Confirm your 6-digit UPI PIN to proceed</p>
-                    <input
-                      type="password"
-                      maxLength={6}
-                      value={upiPin}
-                      onChange={(e) => setUpiPin(e.target.value.replace(/\D/g, ''))}
-                      placeholder="•••••• "
-                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-center text-2xl tracking-widest font-bold focus:outline-none focus:border-blue-500 mb-4"
-                    />
-                    <p className="text-xs text-gray-500 mb-6">You will not be charged during simulation</p>
-                    <button
-                      onClick={handleUPIPinSubmit}
-                      disabled={upiPin.length !== 6}
-                      className="w-full bg-blue-600 disabled:bg-gray-400 text-white font-semibold py-3 rounded-lg transition-colors"
-                    >
-                      Verify & Pay
-                    </button>
-                  </motion.div>
-                )}
-
-                {/* Processing Step */}
-                {paymentStep === 'processing' && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-8 text-center">
-                    <motion.div
-                      animate={{ rotate: 360 }}
-                      transition={{ repeat: Infinity, duration: 1.5, ease: 'linear' }}
-                      className="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full mx-auto mb-4"
-                    />
-                    <p className="text-gray-700 font-semibold mb-3">Processing Transaction...</p>
-                    <motion.div
-                      animate={{ opacity: [1, 0.6] }}
-                      transition={{ repeat: Infinity, duration: 1 }}
-                      className="bg-orange-50 border border-orange-300 rounded-lg p-3 text-left"
-                    >
-                      <p className="text-sm text-orange-700 font-medium">⚠️ Do not refresh your browser</p>
-                    </motion.div>
-                  </motion.div>
-                )}
-
-                {/* Success Step */}
-                {paymentStep === 'success' && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-8 text-center bg-gradient-to-b from-green-50 to-transparent">
-                    {showConfetti && <Confetti width={400} height={500} />}
-                    <motion.div
-                      initial={{ scale: 0, rotate: -180 }}
-                      animate={{ scale: 1, rotate: 0 }}
-                      transition={{ type: 'spring', stiffness: 100, damping: 12 }}
-                      className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center text-white text-4xl mx-auto mb-4"
-                    >
-                      ✓
-                    </motion.div>
-                    <p className="text-lg font-bold text-green-700 mb-2">Transaction Successful!</p>
-                    <p className="text-sm text-gray-500">Redirecting to order confirmation...</p>
-                  </motion.div>
-                )}
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-
       {/* Progress Steps */}
       <div className="checkout-steps">
         {stepLabels.map((s, i) => (
@@ -317,27 +427,29 @@ export default function Cart() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 {items.map((item) => (
                   <div
-                    key={item.cartId}
+                    key={item.id}
                     style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', padding: '1.25rem', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', background: '#fff' }}
                   >
-                    <img src={item.image_url} alt={item.name} style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: 'var(--radius-sm)', background: 'var(--bg-soft)' }} />
+                    <img src={item.image_url} alt={item.product_name} style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: 'var(--radius-sm)', background: 'var(--bg-soft)' }} />
                     <div style={{ flex: 1 }}>
-                      <h3 style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '0.25rem' }}>{item.name}</h3>
-                      {item.selectedColor && (
+                      <h3 style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '0.25rem' }}>{item.product_name}</h3>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>{item.vendor_store_name || 'Marketplace Seller'}</p>
+                      {item.color && (
                         <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>
-                          Color: <span style={{ fontWeight: 500, color: 'var(--text-main)' }}>{item.selectedColor}</span>
+                          Variant: <span style={{ fontWeight: 500, color: 'var(--text-main)' }}>{item.color}{item.size ? ` / ${item.size}` : ''}</span>
                         </p>
                       )}
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '0.5rem' }}>
-                        <button onClick={() => updateQuantity(item.cartId, -1)} style={{ width: '28px', height: '28px', border: '1px solid var(--border)', borderRadius: '4px', background: '#fff', cursor: 'pointer', fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                        <button onClick={() => updateQuantity(item.id, Math.max(1, item.quantity - 1))} style={{ width: '28px', height: '28px', border: '1px solid var(--border)', borderRadius: '4px', background: '#fff', cursor: 'pointer', fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
                         <span style={{ fontSize: '0.9rem', fontWeight: 600, minWidth: '20px', textAlign: 'center' }}>{item.quantity || 1}</span>
-                        <button onClick={() => updateQuantity(item.cartId, 1)} style={{ width: '28px', height: '28px', border: '1px solid var(--border)', borderRadius: '4px', background: '#fff', cursor: 'pointer', fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                        <button onClick={() => updateQuantity(item.id, item.quantity + 1)} style={{ width: '28px', height: '28px', border: '1px solid var(--border)', borderRadius: '4px', background: '#fff', cursor: 'pointer', fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                        <button onClick={() => moveToWishlist(item)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-link)', fontSize: '0.78rem', marginLeft: '0.5rem' }}>Move to wishlist</button>
                       </div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--accent)' }}>₹{Math.floor(item.finalPrice * (item.quantity || 1)).toLocaleString()}</div>
+                      <div style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--accent)' }}>Rs {Math.floor(item.effective_price * (item.quantity || 1)).toLocaleString()}</div>
                       <button
-                        onClick={() => removeItem(item.cartId)}
+                        onClick={() => removeItem(item.id)}
                         style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: '0.82rem', fontWeight: 500, marginTop: '0.5rem' }}
                       >
                         Remove
@@ -352,21 +464,26 @@ export default function Cart() {
                 <h2 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '1.5rem' }}>Order Summary</h2>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem', fontSize: '0.92rem' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>Subtotal ({items.length} items)</span>
-                  <span style={{ fontWeight: 600 }}>₹{Math.floor(total).toLocaleString()}</span>
+                  <span style={{ fontWeight: 600 }}>Rs {Math.floor(subtotal).toLocaleString()}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem', fontSize: '0.92rem' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>Delivery</span>
                   <span style={{ fontWeight: 600, color: deliveryCharge === 0 ? 'var(--success)' : 'var(--text-main)' }}>
-                    {deliveryCharge === 0 ? 'FREE' : `₹${deliveryCharge}`}
+                    {deliveryCharge === 0 ? 'FREE' : `Rs ${deliveryCharge}`}
                   </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem', fontSize: '0.92rem' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Discount</span>
+                  <span style={{ fontWeight: 600 }}>Rs {Math.floor(couponDiscount).toLocaleString()}</span>
                 </div>
                 <div style={{ borderTop: '1px solid var(--border-light)', margin: '1rem 0', paddingTop: '1rem', display: 'flex', justifyContent: 'space-between', fontSize: '1.1rem', fontWeight: 700 }}>
                   <span>Total</span>
-                  <span style={{ color: 'var(--accent)' }}>₹{Math.floor(grandTotal).toLocaleString()}</span>
+                  <span style={{ color: 'var(--accent)' }}>Rs {Math.floor(total).toLocaleString()}</span>
                 </div>
                 <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
-                  📦 Estimated delivery: {getDeliveryDate().min}
+                  Cancel before shipping for full refund. After shipping, return flow applies.
                 </p>
+                <button className="btn-outline" style={{ width: '100%', padding: '10px', marginBottom: '0.75rem' }} onClick={clearEntireCart}>Clear Cart</button>
                 <button className="btn-primary" style={{ width: '100%', padding: '14px' }} onClick={handleProceedToAddress}>
                   Proceed to Checkout
                 </button>
@@ -386,10 +503,30 @@ export default function Cart() {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: '2rem', alignItems: 'flex-start' }}>
             <form onSubmit={handleProceedToPayment} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {addresses.length > 0 && (
+                <div style={{ border: '1px solid var(--border-light)', borderRadius: '10px', padding: '0.85rem', background: '#fff' }}>
+                  <h3 style={{ fontSize: '0.95rem', marginBottom: '0.5rem' }}>Saved Addresses</h3>
+                  <div style={{ display: 'grid', gap: '0.5rem' }}>
+                    {addresses.map((entry) => (
+                      <label key={entry.id} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', fontSize: '0.86rem' }}>
+                        <input
+                          type="radio"
+                          checked={selectedAddressId === Number(entry.id)}
+                          onChange={() => setSelectedAddressId(Number(entry.id))}
+                        />
+                        <span>
+                          <strong>{entry.label}</strong> - {entry.full_name}, {entry.line1}, {entry.city}, {entry.state} {entry.pincode}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 <div className="input-group" style={{ marginBottom: 0 }}>
                   <label>Full Name *</label>
-                  <input className="input-field" required value={address.fullName} onChange={(e) => setAddress({ ...address, fullName: e.target.value })} placeholder="John Doe" />
+                  <input className="input-field" required value={address.full_name} onChange={(e) => setAddress({ ...address, full_name: e.target.value })} placeholder="John Doe" />
                 </div>
                 <div className="input-group" style={{ marginBottom: 0 }}>
                   <label>Phone Number *</label>
@@ -398,11 +535,11 @@ export default function Cart() {
               </div>
               <div className="input-group" style={{ marginBottom: 0 }}>
                 <label>Address Line 1 *</label>
-                <input className="input-field" required value={address.addressLine1} onChange={(e) => setAddress({ ...address, addressLine1: e.target.value })} placeholder="House no., Building, Street" />
+                <input className="input-field" required value={address.line1} onChange={(e) => setAddress({ ...address, line1: e.target.value })} placeholder="House no., Building, Street" />
               </div>
               <div className="input-group" style={{ marginBottom: 0 }}>
                 <label>Address Line 2</label>
-                <input className="input-field" value={address.addressLine2} onChange={(e) => setAddress({ ...address, addressLine2: e.target.value })} placeholder="Landmark, Area (optional)" />
+                <input className="input-field" value={address.line2} onChange={(e) => setAddress({ ...address, line2: e.target.value })} placeholder="Landmark, Area (optional)" />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
                 <div className="input-group" style={{ marginBottom: 0 }}>
@@ -418,6 +555,20 @@ export default function Cart() {
                   <input className="input-field" required value={address.pincode} onChange={(e) => setAddress({ ...address, pincode: e.target.value })} placeholder="400001" />
                 </div>
               </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button type="button" className="btn-outline" onClick={saveNewAddress}>Save Address</button>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}>
+                  <input type="checkbox" checked={saveAsDefault} onChange={(e) => setSaveAsDefault(e.target.checked)} />
+                  Set as default address
+                </label>
+              </div>
+
+              <div className="input-group" style={{ marginBottom: 0 }}>
+                <label>Order Notes / Special Instructions</label>
+                <textarea className="input-field" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Any delivery notes for seller" />
+              </div>
+
               <button type="submit" className="btn-primary" style={{ marginTop: '1rem', padding: '14px 32px', alignSelf: 'flex-start' }}>
                 Continue to Payment →
               </button>
@@ -429,7 +580,7 @@ export default function Cart() {
               <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>{items.length} item(s)</p>
               <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '0.75rem', marginTop: '0.75rem', display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
                 <span>Total</span>
-                <span style={{ color: 'var(--accent)' }}>₹{Math.floor(grandTotal).toLocaleString()}</span>
+                <span style={{ color: 'var(--accent)' }}>Rs {Math.floor(total).toLocaleString()}</span>
               </div>
             </div>
           </div>
@@ -446,140 +597,89 @@ export default function Cart() {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: '2rem', alignItems: 'flex-start' }}>
             <div>
-              {/* Cash on Delivery */}
-              <div
-                className={`payment-option ${paymentMethod === 'cod' ? 'selected' : ''}`}
-                onClick={() => setPaymentMethod('cod')}
-              >
-                <input type="radio" name="payment" checked={paymentMethod === 'cod'} readOnly />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>💵 Cash on Delivery</div>
-                  <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px' }}>Pay when your order arrives at your doorstep</p>
-                </div>
-              </div>
-
-              {/* UPI */}
-              <div
-                className={`payment-option ${paymentMethod === 'upi' ? 'selected' : ''}`}
-                onClick={() => setPaymentMethod('upi')}
-                style={{ flexDirection: 'column', alignItems: 'flex-start' }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', width: '100%' }}>
-                  <input type="radio" name="payment" checked={paymentMethod === 'upi'} readOnly />
+              {paymentOptions.map((option) => (
+                <div
+                  key={option.id}
+                  className={`payment-option ${paymentMethod === option.id ? 'selected' : ''}`}
+                  onClick={() => setPaymentMethod(option.id)}
+                >
+                  <input type="radio" name="payment" checked={paymentMethod === option.id} readOnly />
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>📱 UPI Payment</div>
-                    <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px' }}>Pay using Google Pay, PhonePe, Paytm or any UPI app</p>
+                    <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{option.label}</div>
+                    <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      {option.id === 'cod'
+                        ? 'Pay after delivery. Your order remains pending until successful handoff.'
+                        : 'Secured by Razorpay. Payment is verified server-side before confirmation.'}
+                    </p>
                   </div>
                 </div>
+              ))}
 
-                {paymentMethod === 'upi' && (
-                  <div style={{ width: '100%', paddingTop: '1rem', borderTop: '1px solid var(--border-light)', marginTop: '1rem' }}>
-                    <p style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>Select UPI App:</p>
-                    <div className="upi-apps">
-                      {([
-                        { key: 'googlepay' as UPIApp, name: 'Google Pay', color: '#4285F4', letter: 'G' },
-                        { key: 'phonepe' as UPIApp, name: 'PhonePe', color: '#5F259F', letter: 'P' },
-                        { key: 'paytm' as UPIApp, name: 'Paytm', color: '#00BAF2', letter: 'P' },
-                      ]).map(app => (
-                        <div
-                          key={app.key}
-                          className={`upi-app ${selectedUPI === app.key ? 'selected' : ''}`}
-                          onClick={(e) => { e.stopPropagation(); setSelectedUPI(app.key) }}
-                        >
-                          <div className="upi-app-icon" style={{ background: app.color }}>{app.letter}</div>
-                          {app.name}
-                        </div>
-                      ))}
-                    </div>
-                    <div className="input-group" style={{ marginTop: '1rem', marginBottom: 0 }}>
-                      <label>UPI ID (optional)</label>
-                      <input
-                        className="input-field"
-                        placeholder="yourname@upi"
-                        value={upiId}
-                        onChange={(e) => setUpiId(e.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '0.75rem', fontSize: '0.88rem' }}>
+                <input type="checkbox" checked={billingSameAsDelivery} onChange={(e) => setBillingSameAsDelivery(e.target.checked)} />
+                Billing address same as delivery
+              </label>
 
-              {/* Net Banking */}
-              <div
-                className={`payment-option ${paymentMethod === 'netbanking' ? 'selected' : ''}`}
-                onClick={() => setPaymentMethod('netbanking')}
-                style={{ flexDirection: 'column', alignItems: 'flex-start' }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', width: '100%' }}>
-                  <input type="radio" name="payment" checked={paymentMethod === 'netbanking'} readOnly />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>🏦 Net Banking</div>
-                    <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px' }}>Pay directly from your bank account</p>
-                  </div>
-                </div>
-
-                {paymentMethod === 'netbanking' && (
-                  <div style={{ width: '100%', paddingTop: '1rem', borderTop: '1px solid var(--border-light)', marginTop: '1rem' }}>
-                    <p style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>Select Bank:</p>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                      {['SBI', 'HDFC Bank', 'ICICI Bank', 'Axis Bank', 'Kotak Bank', 'Bank of Baroda'].map(bank => (
-                        <div
-                          key={bank}
-                          className={`upi-app ${selectedBank === bank ? 'selected' : ''}`}
-                          onClick={(e) => { e.stopPropagation(); setSelectedBank(bank) }}
-                          style={{ flexDirection: 'row', padding: '10px 14px' }}
-                        >
-                          <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: 'var(--bg-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 700, color: 'var(--accent)' }}>
-                            {bank.charAt(0)}
-                          </div>
-                          <span style={{ fontSize: '0.85rem' }}>{bank}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+              <div className="input-group" style={{ marginTop: '0.75rem', marginBottom: 0 }}>
+                <label>Coupon Discount (Rs)</label>
+                <input
+                  className="input-field"
+                  type="number"
+                  min={0}
+                  max={Math.floor(subtotal)}
+                  value={couponDiscount}
+                  onChange={(e) => setCouponDiscount(Math.max(0, Number(e.target.value || 0)))}
+                />
               </div>
 
               <button
                 className="btn-primary"
                 style={{ marginTop: '1.5rem', padding: '16px 40px' }}
-                onClick={handleInitiatePayment}
+                onClick={handlePlaceOrder}
                 disabled={isProcessing}
               >
-                {isProcessing ? (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ width: '18px', height: '18px', border: '2px solid #fff', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite', display: 'inline-block' }}></span>
-                    Placing Order...
-                  </span>
-                ) : `Place Order — ₹${Math.floor(grandTotal).toLocaleString()}`}
+                {isProcessing ? 'Placing Order...' : `Place Order — Rs ${Math.floor(total).toLocaleString()}`}
               </button>
-
-              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
             </div>
 
             {/* Summary sidebar */}
             <div style={{ border: '1px solid var(--border-light)', borderRadius: 'var(--radius-md)', padding: '1.5rem', background: '#fff', position: 'sticky', top: '100px' }}>
               <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '1rem' }}>Delivery Address</h3>
-              <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                <strong>{address.fullName}</strong><br />
-                {address.addressLine1}<br />
-                {address.addressLine2 && <>{address.addressLine2}<br /></>}
-                {address.city}, {address.state} - {address.pincode}<br />
-                📞 {address.phone}
-              </p>
+              {selectedAddressId ? (
+                <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                  {(() => {
+                    const selected = addresses.find((entry) => Number(entry.id) === selectedAddressId)
+                    if (!selected) return 'No address selected'
+                    return (
+                      <>
+                        <strong>{selected.full_name}</strong><br />
+                        {selected.line1}<br />
+                        {selected.line2 && <>{selected.line2}<br /></>}
+                        {selected.city}, {selected.state} - {selected.pincode}<br />
+                        📞 {selected.phone}
+                      </>
+                    )
+                  })()}
+                </p>
+              ) : (
+                <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)' }}>No address selected yet.</p>
+              )}
               <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '1rem', marginTop: '1rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.92rem', marginBottom: '0.5rem' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>{items.length} item(s)</span>
-                  <span style={{ fontWeight: 600 }}>₹{Math.floor(total).toLocaleString()}</span>
+                  <span style={{ fontWeight: 600 }}>Rs {Math.floor(subtotal).toLocaleString()}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.92rem', marginBottom: '0.5rem' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>Delivery</span>
-                  <span style={{ fontWeight: 600, color: deliveryCharge === 0 ? 'var(--success)' : undefined }}>{deliveryCharge === 0 ? 'FREE' : `₹${deliveryCharge}`}</span>
+                  <span style={{ fontWeight: 600, color: deliveryCharge === 0 ? 'var(--success)' : undefined }}>{deliveryCharge === 0 ? 'FREE' : `Rs ${deliveryCharge}`}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.92rem', marginBottom: '0.5rem' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Discount</span>
+                  <span style={{ fontWeight: 600 }}>Rs {Math.floor(couponDiscount).toLocaleString()}</span>
                 </div>
                 <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '0.75rem', marginTop: '0.5rem', display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: '1.05rem' }}>
                   <span>Total</span>
-                  <span style={{ color: 'var(--accent)' }}>₹{Math.floor(grandTotal).toLocaleString()}</span>
+                  <span style={{ color: 'var(--accent)' }}>Rs {Math.floor(total).toLocaleString()}</span>
                 </div>
               </div>
             </div>
@@ -596,54 +696,41 @@ export default function Cart() {
             Thank you for shopping with Stella!
           </p>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-            Order ID: <strong style={{ color: 'var(--text-main)' }}>{orderDetails.orderId}</strong>
+            Order ID: <strong style={{ color: 'var(--text-main)' }}>{orderDetails.order_id}</strong>
           </p>
 
           <div className="order-details-card">
             <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '1rem' }}>📦 Order Details</h3>
             <div className="order-detail-row">
               <span style={{ color: 'var(--text-secondary)' }}>Order Date</span>
-              <span style={{ fontWeight: 600 }}>{orderDetails.orderDate}</span>
+              <span style={{ fontWeight: 600 }}>{orderDetails.created_at}</span>
             </div>
             <div className="order-detail-row">
-              <span style={{ color: 'var(--text-secondary)' }}>Estimated Delivery</span>
-              <span style={{ fontWeight: 600, color: 'var(--accent)' }}>{orderDetails.deliveryMin} — {orderDetails.deliveryMax}</span>
+              <span style={{ color: 'var(--text-secondary)' }}>Payment Provider</span>
+              <span style={{ fontWeight: 600, color: 'var(--accent)', textTransform: 'uppercase' }}>{orderDetails.payment_provider}</span>
             </div>
             <div className="order-detail-row">
               <span style={{ color: 'var(--text-secondary)' }}>Payment Method</span>
-              <span style={{ fontWeight: 600 }}>
-                {orderDetails.paymentMethod === 'cod' && '💵 Cash on Delivery'}
-                {orderDetails.paymentMethod === 'upi' && `📱 UPI (${orderDetails.selectedUPI === 'googlepay' ? 'Google Pay' : orderDetails.selectedUPI === 'phonepe' ? 'PhonePe' : 'Paytm'})`}
-                {orderDetails.paymentMethod === 'netbanking' && `🏦 Net Banking (${orderDetails.selectedBank})`}
-              </span>
+              <span style={{ fontWeight: 600, textTransform: 'capitalize' }}>{paymentMethod}</span>
             </div>
             <div className="order-detail-row">
-              <span style={{ color: 'var(--text-secondary)' }}>Delivery Address</span>
-              <span style={{ fontWeight: 600, textAlign: 'right', maxWidth: '200px' }}>
-                {orderDetails.address.addressLine1}, {orderDetails.address.city}
-              </span>
+              <span style={{ color: 'var(--text-secondary)' }}>Reference</span>
+              <span style={{ fontWeight: 600, textAlign: 'right', maxWidth: '200px' }}>{orderDetails.payment_reference}</span>
             </div>
             <div className="order-detail-row" style={{ borderBottom: 'none' }}>
               <span style={{ color: 'var(--text-secondary)' }}>Total Amount</span>
-              <span style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--accent)' }}>₹{Math.floor(orderDetails.total).toLocaleString()}</span>
+              <span style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--accent)' }}>Rs {Math.floor(orderDetails.total_amount).toLocaleString()}</span>
             </div>
           </div>
 
-          {/* Items ordered */}
-          <div style={{ textAlign: 'left', marginBottom: '2rem' }}>
-            <h3 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '1rem' }}>Items Ordered ({orderDetails.items.length})</h3>
-            {orderDetails.items.map((item: any, idx: number) => (
-              <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.75rem', borderRadius: 'var(--radius-sm)', background: 'var(--bg-soft)', marginBottom: '0.5rem' }}>
-                <img src={item.image_url} alt={item.name} style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '6px' }} />
-                <div style={{ flex: 1 }}>
-                  <p style={{ fontSize: '0.88rem', fontWeight: 600 }}>{item.name}</p>
-                </div>
-                <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>₹{Math.floor(item.finalPrice).toLocaleString()}</span>
-              </div>
-            ))}
-          </div>
+          <p style={{ marginBottom: '1rem', color: 'var(--text-muted)' }}>
+            Vendors will manually move status: Order Placed → Processing → Shipped → Delivered → Completed.
+          </p>
 
-          <Link href="/" className="btn-primary" style={{ padding: '14px 48px' }}>Continue Shopping</Link>
+          <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
+            <Link href="/" className="btn-primary" style={{ padding: '14px 24px' }}>Continue Shopping</Link>
+            <Link href="/user" className="btn-outline" style={{ padding: '14px 24px' }}>Track Orders</Link>
+          </div>
         </div>
       )}
     </div>
