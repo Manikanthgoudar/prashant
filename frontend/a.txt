@@ -1,0 +1,9 @@
+cd frontend
+paste the schema.sql in sql 
+npm i 
+npm run build
+npm start
+
+
+different terminal 
+curl request 
