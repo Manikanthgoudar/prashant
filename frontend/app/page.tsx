@@ -134,7 +134,7 @@ export default function Home() {
   const tagOptions = useMemo(() => {
     const set = new Set<string>()
     displayProducts.forEach((product) => {
-      ;(product.tags || []).forEach((tag) => set.add(tag))
+      ; (product.tags || []).forEach((tag) => set.add(tag))
     })
     return Array.from(set).sort((a, b) => a.localeCompare(b))
   }, [displayProducts])

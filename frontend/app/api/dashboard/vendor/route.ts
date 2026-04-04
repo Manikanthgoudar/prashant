@@ -12,16 +12,36 @@ export async function GET(req: NextRequest) {
     try {
         const [summaryRows] = await conn.query<any[]>(
             `SELECT
-               COALESCE(SUM(oi.line_total), 0) AS gross_sales,
-               COALESCE(SUM(oi.platform_commission), 0) AS platform_commission,
-               COALESCE(SUM(oi.vendor_payout), 0) AS net_payout,
-               COALESCE(SUM(oi.refund_amount), 0) AS refunds,
+                             (SELECT COALESCE(SUM(t.gross_amount), 0)
+                                    FROM transactions t
+                                 WHERE t.vendor_id = ?
+                                     AND t.transaction_type = 'payment'
+                                     AND t.status = 'success') AS gross_sales,
+                             (SELECT COALESCE(SUM(t.commission_amount), 0)
+                                    FROM transactions t
+                                 WHERE t.vendor_id = ?
+                                     AND t.transaction_type = 'commission'
+                                     AND t.status = 'success') AS platform_commission,
+                             (SELECT COALESCE(SUM(t.payout_amount), 0)
+                                    FROM transactions t
+                                 WHERE t.vendor_id = ?
+                                     AND t.transaction_type = 'vendor_payout'
+                                     AND t.status = 'success') AS net_payout,
+                             (SELECT COALESCE(SUM(t.refund_amount), 0)
+                                    FROM (
+                                        SELECT order_item_id, MAX(refund_amount) AS refund_amount
+                                        FROM transactions
+                                        WHERE vendor_id = ?
+                                            AND transaction_type = 'refund'
+                                            AND status = 'success'
+                                        GROUP BY order_item_id
+                                    ) t) AS refunds,
                COUNT(DISTINCT oi.order_id) AS orders,
-               SUM(CASE WHEN oi.status IN ('placed', 'processing') THEN 1 ELSE 0 END) AS pending_items,
-               SUM(CASE WHEN oi.status = 'return_requested' THEN 1 ELSE 0 END) AS return_requests
+                             COALESCE(SUM(CASE WHEN oi.status IN ('placed', 'processing') THEN 1 ELSE 0 END), 0) AS pending_items,
+                             COALESCE(SUM(CASE WHEN oi.status = 'return_requested' THEN 1 ELSE 0 END), 0) AS return_requests
              FROM order_items oi
              WHERE oi.vendor_id = ?`,
-            [user.id]
+                        [user.id, user.id, user.id, user.id, user.id]
         )
 
         const [orderItems] = await conn.query<any[]>(
@@ -68,6 +88,18 @@ export async function GET(req: NextRequest) {
                created_at
              FROM transactions
              WHERE vendor_id = ?
+                             AND status = 'success'
+                             AND (
+                                 transaction_type <> 'refund'
+                                 OR id = (
+                                     SELECT MAX(t2.id)
+                                     FROM transactions t2
+                                     WHERE t2.vendor_id = transactions.vendor_id
+                                         AND t2.transaction_type = 'refund'
+                                         AND t2.status = 'success'
+                                         AND t2.order_item_id <=> transactions.order_item_id
+                                 )
+                             )
              ORDER BY created_at DESC
              LIMIT 300`,
             [user.id]
@@ -99,20 +131,57 @@ export async function GET(req: NextRequest) {
 
         const [monthlyRows] = await conn.query<any[]>(
             `SELECT
-               DATE_FORMAT(o.created_at, '%Y-%m') AS month,
-               SUM(oi.line_total) AS sales,
-               SUM(oi.platform_commission) AS commission,
-               SUM(oi.vendor_payout) AS payout,
-               SUM(oi.refund_amount) AS refunds,
-               COUNT(DISTINCT oi.order_id) AS orders
-             FROM order_items oi
-             JOIN orders o ON o.id = oi.order_id
-             WHERE oi.vendor_id = ?
-               AND o.created_at >= DATE_SUB(CURRENT_DATE, INTERVAL 12 MONTH)
-             GROUP BY DATE_FORMAT(o.created_at, '%Y-%m')
+                             DATE_FORMAT(created_at, '%Y-%m') AS month,
+                             SUM(CASE WHEN transaction_type = 'payment' THEN gross_amount ELSE 0 END) AS sales,
+                             SUM(CASE WHEN transaction_type = 'commission' THEN commission_amount ELSE 0 END) AS commission,
+                             SUM(CASE WHEN transaction_type = 'vendor_payout' THEN payout_amount ELSE 0 END) AS payout,
+                             SUM(CASE WHEN transaction_type = 'refund' THEN refund_amount ELSE 0 END) AS refunds,
+                             COUNT(DISTINCT order_id) AS orders
+                         FROM transactions
+                         WHERE vendor_id = ?
+                             AND status = 'success'
+                             AND created_at >= DATE_SUB(CURRENT_DATE, INTERVAL 12 MONTH)
+                         GROUP BY DATE_FORMAT(created_at, '%Y-%m')
              ORDER BY month ASC`,
             [user.id]
         )
+
+                const [reversalGapRows] = await conn.query<any[]>(
+                        `SELECT
+                            COALESCE((SELECT SUM(oi.platform_commission)
+                                                FROM order_items oi
+                                                WHERE oi.vendor_id = ? AND oi.status = 'refunded'), 0) AS refunded_commission,
+                            COALESCE((SELECT ABS(SUM(t.commission_amount))
+                                                FROM transactions t
+                                                WHERE t.vendor_id = ?
+                                                    AND t.transaction_type = 'commission'
+                                                    AND t.status = 'success'
+                                                    AND t.commission_amount < 0), 0) AS reversed_commission,
+                            COALESCE((SELECT SUM(oi.vendor_payout)
+                                                FROM order_items oi
+                                                WHERE oi.vendor_id = ? AND oi.status = 'refunded'), 0) AS refunded_payout,
+                            COALESCE((SELECT ABS(SUM(t.payout_amount))
+                                                FROM transactions t
+                                                WHERE t.vendor_id = ?
+                                                    AND t.transaction_type = 'vendor_payout'
+                                                    AND t.status = 'success'
+                                                    AND t.payout_amount < 0), 0) AS reversed_payout`,
+                        [user.id, user.id, user.id, user.id]
+                )
+
+                const summary = { ...(summaryRows[0] || {}) }
+                const reversalGap = reversalGapRows[0] || {}
+                const missingCommissionReversal = Math.max(
+                        0,
+                        Number(reversalGap.refunded_commission || 0) - Number(reversalGap.reversed_commission || 0)
+                )
+                const missingPayoutReversal = Math.max(
+                        0,
+                        Number(reversalGap.refunded_payout || 0) - Number(reversalGap.reversed_payout || 0)
+                )
+
+                summary.platform_commission = Number(summary.platform_commission || 0) - missingCommissionReversal
+                summary.net_payout = Number(summary.net_payout || 0) - missingPayoutReversal
 
         const [statusBreakdown] = await conn.query<any[]>(
             `SELECT status, COUNT(*) AS count
@@ -133,7 +202,7 @@ export async function GET(req: NextRequest) {
         )
 
         return NextResponse.json({
-            summary: summaryRows[0] || {},
+            summary,
             order_items: orderItems,
             transactions,
             returns_refunds: returnsRows,

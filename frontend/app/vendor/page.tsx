@@ -190,6 +190,14 @@ export default function VendorDashboardPage() {
 
     const summary = data.summary || {}
 
+    const getTransactionAmount = (transaction: any) => {
+        const type = String(transaction?.transaction_type || '').toLowerCase()
+        if (type === 'commission') return Number(transaction?.commission_amount || 0)
+        if (type === 'vendor_payout') return Number(transaction?.payout_amount || 0)
+        if (type === 'refund') return Number(transaction?.refund_amount || 0)
+        return Number(transaction?.gross_amount || 0)
+    }
+
     return (
         <main className="container" style={{ padding: '2rem 2rem 4rem' }}>
             <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>Vendor Dashboard</h1>
@@ -299,28 +307,40 @@ export default function VendorDashboardPage() {
                 <div style={{ display: 'grid', gap: '0.6rem' }}>
                     {(data.order_items || []).slice(0, 40).map((item: any) => (
                         <div key={item.id} style={{ border: '1px solid var(--border-light)', borderRadius: '10px', padding: '0.75rem', display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: '0.75rem', alignItems: 'center' }}>
-                            <div>
-                                <div style={{ fontWeight: 600 }}>{item.product_name}</div>
-                                <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                                    Order #{item.order_id} · {item.customer_name} · Qty {item.quantity}
-                                </div>
-                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                                    Tracking: {item.mock_tracking_number || 'Pending'}
-                                </div>
-                            </div>
-                            <div style={{ fontWeight: 700, color: 'var(--accent)' }}>Rs {Math.floor(Number(item.vendor_payout || 0)).toLocaleString()}</div>
-                            <div style={{ fontSize: '0.82rem', textTransform: 'capitalize' }}>{item.status}</div>
-                            <select
-                                className="input-field"
-                                value={item.status}
-                                onChange={(e) => updateItemStatus(Number(item.order_id), Number(item.id), e.target.value)}
-                                disabled={saving}
-                                style={{ width: '180px' }}
-                            >
-                                {STATUS_OPTIONS.map((status) => (
-                                    <option key={status} value={status}>{status}</option>
-                                ))}
-                            </select>
+                            {(() => {
+                                const itemStatus = String(item.status || '').toLowerCase()
+                                const isStatusLocked = ['cancelled', 'return_requested', 'returned', 'refunded'].includes(itemStatus)
+                                const statusOptions = STATUS_OPTIONS.includes(itemStatus)
+                                    ? STATUS_OPTIONS
+                                    : [...STATUS_OPTIONS, itemStatus]
+
+                                return (
+                                    <>
+                                        <div>
+                                            <div style={{ fontWeight: 600 }}>{item.product_name}</div>
+                                            <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                                                Order #{item.order_id} · {item.customer_name} · Qty {item.quantity}
+                                            </div>
+                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                                Tracking: {item.mock_tracking_number || 'Pending'}
+                                            </div>
+                                        </div>
+                                        <div style={{ fontWeight: 700, color: 'var(--accent)' }}>Rs {Math.floor(Number(item.vendor_payout || 0)).toLocaleString()}</div>
+                                        <div style={{ fontSize: '0.82rem', textTransform: 'capitalize' }}>{item.status}</div>
+                                        <select
+                                            className="input-field"
+                                            value={itemStatus}
+                                            onChange={(e) => updateItemStatus(Number(item.order_id), Number(item.id), e.target.value)}
+                                            disabled={saving || isStatusLocked}
+                                            style={{ width: '180px' }}
+                                        >
+                                            {statusOptions.map((status) => (
+                                                <option key={status} value={status}>{status}</option>
+                                            ))}
+                                        </select>
+                                    </>
+                                )
+                            })()}
                         </div>
                     ))}
                 </div>
@@ -332,20 +352,26 @@ export default function VendorDashboardPage() {
                     <p style={{ color: 'var(--text-muted)' }}>No return requests.</p>
                 ) : (
                     <div style={{ display: 'grid', gap: '0.6rem' }}>
-                        {(data.returns_refunds || []).map((entry: any) => (
-                            <div key={entry.id} style={{ border: '1px solid var(--border-light)', borderRadius: '10px', padding: '0.75rem', display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '0.75rem', alignItems: 'center' }}>
-                                <div>
-                                    <div style={{ fontWeight: 600 }}>{entry.product_name}</div>
-                                    <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Order #{entry.order_id} · {entry.customer_name}</div>
-                                    <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Reason: {entry.reason || 'N/A'}</div>
+                        {(data.returns_refunds || []).map((entry: any) => {
+                            const entryStatus = String(entry.status || '').toLowerCase()
+                            const canApprove = entryStatus === 'requested'
+                            const canRefund = entryStatus === 'approved' || entryStatus === 'completed'
+
+                            return (
+                                <div key={entry.id} style={{ border: '1px solid var(--border-light)', borderRadius: '10px', padding: '0.75rem', display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '0.75rem', alignItems: 'center' }}>
+                                    <div>
+                                        <div style={{ fontWeight: 600 }}>{entry.product_name}</div>
+                                        <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Order #{entry.order_id} · {entry.customer_name}</div>
+                                        <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Reason: {entry.reason || 'N/A'}</div>
+                                    </div>
+                                    <div style={{ fontSize: '0.82rem', textTransform: 'capitalize' }}>{entry.status}</div>
+                                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                        <button className="btn-outline" style={{ padding: '8px 10px' }} disabled={saving || !canApprove} onClick={() => handleReturnStatus(Number(entry.id), 'approved')}>Approve</button>
+                                        <button className="btn-outline" style={{ padding: '8px 10px' }} disabled={saving || !canRefund} onClick={() => handleReturnStatus(Number(entry.id), 'refunded')}>Refund</button>
+                                    </div>
                                 </div>
-                                <div style={{ fontSize: '0.82rem', textTransform: 'capitalize' }}>{entry.status}</div>
-                                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                    <button className="btn-outline" style={{ padding: '8px 10px' }} disabled={saving} onClick={() => handleReturnStatus(Number(entry.id), 'approved')}>Approve</button>
-                                    <button className="btn-outline" style={{ padding: '8px 10px' }} disabled={saving} onClick={() => handleReturnStatus(Number(entry.id), 'refunded')}>Refund</button>
-                                </div>
-                            </div>
-                        ))}
+                            )
+                        })}
                     </div>
                 )}
             </section>
@@ -355,10 +381,17 @@ export default function VendorDashboardPage() {
                 <div style={{ maxHeight: '320px', overflowY: 'auto', display: 'grid', gap: '0.4rem' }}>
                     {(data.transactions || []).slice(0, 80).map((transaction: any) => (
                         <div key={transaction.id} style={{ borderBottom: '1px solid var(--border-light)', paddingBottom: '0.45rem' }}>
+                            {(() => {
+                                const amount = getTransactionAmount(transaction)
+                                return (
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
                                 <span style={{ textTransform: 'capitalize' }}>{transaction.transaction_type}</span>
-                                <span>Rs {Math.floor(Number(transaction.gross_amount || transaction.payout_amount || transaction.refund_amount || 0)).toLocaleString()}</span>
+                                <span style={{ color: amount < 0 ? 'var(--danger)' : 'inherit' }}>
+                                    Rs {Math.round(amount).toLocaleString()}
+                                </span>
                             </div>
+                                )
+                            })()}
                             <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>#{transaction.reference} · {transaction.created_at}</div>
                         </div>
                     ))}

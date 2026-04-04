@@ -424,6 +424,286 @@ export async function POST(req: NextRequest) {
                         'https://images.unsplash.com/photo-1620917669788-0f0c9f4015da?w=1000',
                         'https://images.unsplash.com/photo-1626784215021-2e39ccf971cd?w=1000'
                     ]
+                },
+                {
+                    vendorEmail: 'vendor1@stella.local',
+                    category: 'Men Accessories',
+                    name: 'Urban Edge Leather Wallet',
+                    description: 'Slim RFID-safe wallet with quick-access card slots.',
+                    brand: 'Urban Threads',
+                    price: 999,
+                    stock: 180,
+                    discount: 10,
+                    colors: 'black,brown,tan',
+                    tags: ['Men', 'Accessories', 'Wallet', 'Daily Use', 'Gift'],
+                    images: [
+                        'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=1000',
+                        'https://images.unsplash.com/photo-1627123424574-724758594e93?w=1000'
+                    ]
+                },
+                {
+                    vendorEmail: 'vendor1@stella.local',
+                    category: 'Women Tops',
+                    name: 'Breeze Linen Button Shirt',
+                    description: 'Breathable relaxed-fit linen shirt for warm days and travel.',
+                    brand: 'Urban Threads',
+                    price: 1899,
+                    stock: 0,
+                    discount: 12,
+                    colors: 'ivory,blue,sage',
+                    tags: ['Women', 'Tops', 'Linen', 'Casual', 'Summer'],
+                    images: [
+                        'https://images.unsplash.com/photo-1485230895905-ec40ba36b9bc?w=1000',
+                        'https://images.unsplash.com/photo-1483985988355-763728e1935b?w=1000'
+                    ],
+                    generateMatrixVariants: true,
+                    variantSkuPrefix: 'W-TOP',
+                    variantColors: ['Ivory', 'Sky Blue', 'Sage'],
+                    variantSizes: ['XS', 'S', 'M', 'L']
+                },
+                {
+                    vendorEmail: 'vendor1@stella.local',
+                    category: 'Women Accessories',
+                    name: 'Luna Everyday Tote Bag',
+                    description: 'Structured tote with zip pocket and roomy daily essentials compartment.',
+                    brand: 'Urban Threads',
+                    price: 2299,
+                    stock: 95,
+                    discount: 11,
+                    colors: 'beige,black,olive',
+                    tags: ['Women', 'Accessories', 'Bag', 'Office', 'Daily Use'],
+                    images: [
+                        'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=1000',
+                        'https://images.unsplash.com/photo-1566150905458-1bf1fc113f0d?w=1000'
+                    ]
+                },
+                {
+                    vendorEmail: 'vendor3@stella.local',
+                    category: 'Kids Baby Care',
+                    name: 'SoftNest Baby Lotion',
+                    description: 'Mild oat and shea lotion for everyday infant moisturization.',
+                    brand: 'LumaCare Kids',
+                    price: 399,
+                    stock: 260,
+                    discount: 9,
+                    colors: 'cream',
+                    tags: ['Kids', 'Baby Care', 'Skincare', 'Gentle', 'Daily Use'],
+                    images: [
+                        'https://images.unsplash.com/photo-1611080541599-8c6dbde6ed28?w=1000',
+                        'https://images.unsplash.com/photo-1603398938378-e54eab446dde?w=1000'
+                    ]
+                },
+                {
+                    vendorEmail: 'vendor2@stella.local',
+                    category: 'Laptops',
+                    name: 'VoltBook Pro 16',
+                    description: 'Performance laptop with high-refresh display for creators and developers.',
+                    brand: 'TechNest',
+                    price: 94999,
+                    stock: 28,
+                    discount: 7,
+                    colors: 'space-gray,silver',
+                    tags: ['Electronics', 'Laptop', 'Performance', 'Creator', 'Work'],
+                    images: [
+                        'https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=1000',
+                        'https://images.unsplash.com/photo-1517430816045-df4b7de11d1d?w=1000'
+                    ]
+                },
+                {
+                    vendorEmail: 'vendor2@stella.local',
+                    category: 'Mobiles',
+                    name: 'NovaLite 5G',
+                    description: 'Balanced 5G phone with AMOLED screen and fast charging.',
+                    brand: 'PixelNova',
+                    price: 32999,
+                    stock: 140,
+                    discount: 9,
+                    colors: 'charcoal,blue,white',
+                    tags: ['Electronics', 'Mobile', '5G', 'AMOLED', 'Fast Charging'],
+                    images: [
+                        'https://images.unsplash.com/photo-1567581935884-3349723552ca?w=1000',
+                        'https://images.unsplash.com/photo-1512499617640-c74ae3a79d37?w=1000'
+                    ]
+                },
+                {
+                    vendorEmail: 'vendor2@stella.local',
+                    category: 'Audio',
+                    name: 'BassDock Party Speaker',
+                    description: 'Portable Bluetooth speaker with punchy bass and 12-hour battery.',
+                    brand: 'SonicWave',
+                    price: 6999,
+                    stock: 88,
+                    discount: 13,
+                    colors: 'black,navy',
+                    tags: ['Electronics', 'Audio', 'Speaker', 'Bluetooth', 'Portable'],
+                    images: [
+                        'https://images.unsplash.com/photo-1545454675-3531b543be5d?w=1000',
+                        'https://images.unsplash.com/photo-1589003077984-894e133dabab?w=1000'
+                    ]
+                },
+                {
+                    vendorEmail: 'vendor1@stella.local',
+                    category: 'Men Bottoms',
+                    name: 'Metro Slim Chinos',
+                    description: 'Stretch cotton chinos tailored for office and smart casual wear.',
+                    brand: 'Urban Threads',
+                    price: 2399,
+                    stock: 74,
+                    discount: 10,
+                    colors: 'khaki,navy,stone',
+                    tags: ['Men', 'Bottoms', 'Chinos', 'Office', 'Stretch'],
+                    images: [
+                        'https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=1000',
+                        'https://images.unsplash.com/photo-1506629905607-c28c0f7f89d8?w=1000'
+                    ]
+                },
+                {
+                    vendorEmail: 'vendor1@stella.local',
+                    category: 'Men Footwear',
+                    name: 'TrailLite Running Shoes',
+                    description: 'Lightweight cushioned running shoes for daily training.',
+                    brand: 'Urban Steps',
+                    price: 3599,
+                    stock: 96,
+                    discount: 12,
+                    colors: 'black,blue,lime',
+                    tags: ['Men', 'Footwear', 'Running', 'Sports', 'Comfort'],
+                    images: [
+                        'https://images.unsplash.com/photo-1539185441755-769473a23570?w=1000',
+                        'https://images.unsplash.com/photo-1460353581641-37baddab0fa2?w=1000'
+                    ]
+                },
+                {
+                    vendorEmail: 'vendor1@stella.local',
+                    category: 'Kids Clothing',
+                    name: 'PlayTime Cotton Shorts Set',
+                    description: 'Two-piece breathable cotton set for active summer days.',
+                    brand: 'Tiny Trail',
+                    price: 1199,
+                    stock: 0,
+                    discount: 9,
+                    colors: 'blue,orange,green',
+                    tags: ['Kids', 'Clothing', 'Cotton', 'Summer', 'Set'],
+                    images: [
+                        'https://images.unsplash.com/photo-1519238263530-99bdd11df2ea?w=1000',
+                        'https://images.unsplash.com/photo-1519340241574-2cec6aef0c01?w=1000'
+                    ],
+                    generateMatrixVariants: true,
+                    variantSkuPrefix: 'K-SET',
+                    variantColors: ['Ocean Blue', 'Sun Orange', 'Leaf Green'],
+                    variantSizes: ['4Y', '6Y', '8Y', '10Y']
+                },
+                {
+                    vendorEmail: 'vendor2@stella.local',
+                    category: 'Kids Toys',
+                    name: 'RoboBlocks STEM Builder Kit',
+                    description: 'Hands-on robotics blocks set that teaches coding logic and mechanics.',
+                    brand: 'TechNest Junior',
+                    price: 3499,
+                    stock: 92,
+                    discount: 15,
+                    colors: 'multicolor',
+                    tags: ['Kids', 'Toys', 'STEM', 'Learning', 'Educational'],
+                    images: [
+                        'https://images.unsplash.com/photo-1587654780291-39c9404d746b?w=1000',
+                        'https://images.unsplash.com/photo-1566576912321-d58ddd7a6088?w=1000'
+                    ]
+                },
+                {
+                    vendorEmail: 'vendor3@stella.local',
+                    category: 'Furniture',
+                    name: 'FoldMate Study Desk',
+                    description: 'Space-saving desk with storage shelf for home office setups.',
+                    brand: 'HomeCraft',
+                    price: 7999,
+                    stock: 44,
+                    discount: 8,
+                    colors: 'oak,walnut',
+                    tags: ['Home', 'Furniture', 'Study', 'Office', 'Compact'],
+                    images: [
+                        'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?w=1000',
+                        'https://images.unsplash.com/photo-1595514535415-dae8f8f0e2f3?w=1000'
+                    ]
+                },
+                {
+                    vendorEmail: 'vendor3@stella.local',
+                    category: 'Kitchen',
+                    name: 'QuickBlend Mixer Grinder',
+                    description: '750W mixer grinder with stainless jars for chutneys and smoothies.',
+                    brand: 'HomeCraft',
+                    price: 3799,
+                    stock: 66,
+                    discount: 14,
+                    colors: 'black,silver',
+                    tags: ['Home', 'Kitchen', 'Appliance', 'Mixer', 'Daily Use'],
+                    images: [
+                        'https://images.unsplash.com/photo-1586208958839-06c17cacdf08?w=1000',
+                        'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?w=1000'
+                    ]
+                },
+                {
+                    vendorEmail: 'vendor3@stella.local',
+                    category: 'Decor',
+                    name: 'Terra Ceramic Vase Trio',
+                    description: 'Set of three textured ceramic vases for modern shelf styling.',
+                    brand: 'HomeCraft',
+                    price: 1699,
+                    stock: 112,
+                    discount: 10,
+                    colors: 'beige,white,terracotta',
+                    tags: ['Home', 'Decor', 'Vase', 'Living Room', 'Minimal'],
+                    images: [
+                        'https://images.unsplash.com/photo-1616627458129-67f5f7e0e8e4?w=1000',
+                        'https://images.unsplash.com/photo-1604014237800-1c9102c219da?w=1000'
+                    ]
+                },
+                {
+                    vendorEmail: 'vendor3@stella.local',
+                    category: 'Skincare',
+                    name: 'Hydra Dew Gel Cream',
+                    description: 'Lightweight gel moisturizer that hydrates and calms tired skin.',
+                    brand: 'LumaCare',
+                    price: 749,
+                    stock: 280,
+                    discount: 16,
+                    colors: 'aqua',
+                    tags: ['Beauty', 'Skincare', 'Hydration', 'Daily', 'Women'],
+                    images: [
+                        'https://images.unsplash.com/photo-1571781926291-c477ebfd024b?w=1000',
+                        'https://images.unsplash.com/photo-1556228720-195a672e8a03?w=1000'
+                    ]
+                },
+                {
+                    vendorEmail: 'vendor3@stella.local',
+                    category: 'Makeup',
+                    name: 'GlowFix Compact Duo',
+                    description: 'Matte + luminous compact duo designed for long-wear touch-ups.',
+                    brand: 'LumaCare',
+                    price: 999,
+                    stock: 175,
+                    discount: 17,
+                    colors: 'natural,warm-beige,honey',
+                    tags: ['Beauty', 'Makeup', 'Compact', 'Face', 'Everyday'],
+                    images: [
+                        'https://images.unsplash.com/photo-1522338140262-f46f5913618a?w=1000',
+                        'https://images.unsplash.com/photo-1512496015851-a90fb38ba796?w=1000'
+                    ]
+                },
+                {
+                    vendorEmail: 'vendor3@stella.local',
+                    category: 'Haircare',
+                    name: 'Argan Repair Hair Mask',
+                    description: 'Deep-conditioning mask for dry and damaged hair.',
+                    brand: 'LumaCare',
+                    price: 699,
+                    stock: 190,
+                    discount: 12,
+                    colors: 'gold',
+                    tags: ['Beauty', 'Haircare', 'Repair', 'Mask', 'Nourishing'],
+                    images: [
+                        'https://images.unsplash.com/photo-1522337660859-02fbefca4702?w=1000',
+                        'https://images.unsplash.com/photo-1607006483224-4f80f1726d9f?w=1000'
+                    ]
                 }
             ]
 

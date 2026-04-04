@@ -47,10 +47,18 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
               oi.line_total,
               oi.platform_commission,
               oi.vendor_payout,
-              oi.status,
+                            COALESCE(
+                                CASE
+                                    WHEN rr.status = 'requested' THEN 'return_requested'
+                                    WHEN rr.status IN ('approved', 'completed') THEN 'returned'
+                                    WHEN rr.status = 'refunded' THEN 'refunded'
+                                    ELSE NULL
+                                END,
+                                oi.status
+                            ) AS status,
               oi.mock_tracking_number,
-              oi.return_reason,
-              oi.refund_amount,
+                            COALESCE(rr.reason, oi.return_reason) AS return_reason,
+                            CASE WHEN rr.status = 'refunded' THEN COALESCE(rr.refund_amount, oi.refund_amount) ELSE oi.refund_amount END AS refund_amount,
               p.image_url AS product_image,
               u.name AS vendor_name,
               COALESCE(v.store_name, u.name) AS vendor_store_name
@@ -58,6 +66,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
              JOIN products p ON p.id = oi.product_id
              JOIN users u ON u.id = oi.vendor_id
              LEFT JOIN vendors v ON v.user_id = oi.vendor_id
+                         LEFT JOIN returns_refunds rr ON rr.order_item_id = oi.id
              WHERE oi.order_id = ?
              ORDER BY oi.id`,
             [orderId]
@@ -118,17 +127,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
             }
 
             const nextStatus = String(body?.status || '').toLowerCase()
-            const allowed = new Set([
-                'placed',
-                'processing',
-                'shipped',
-                'delivered',
-                'completed',
-                'cancelled',
-                'return_requested',
-                'returned',
-                'refunded'
-            ])
+            const allowed = new Set(['placed', 'processing', 'shipped', 'delivered', 'completed', 'cancelled'])
 
             if (!itemId || !allowed.has(nextStatus)) {
                 await conn.rollback()
@@ -144,6 +143,15 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
             if (user.role === 'vendor' && Number(item.vendor_id) !== user.id) {
                 await conn.rollback()
                 return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+            }
+
+            const lockedStatuses = new Set(['return_requested', 'returned', 'refunded'])
+            if (lockedStatuses.has(String(item.status || '').toLowerCase())) {
+                await conn.rollback()
+                return NextResponse.json(
+                    { error: 'Item status is managed by return workflow and cannot be changed here' },
+                    { status: 400 }
+                )
             }
 
             await conn.execute('UPDATE order_items SET status = ? WHERE id = ?', [nextStatus, itemId])
@@ -162,36 +170,128 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
 
             if (order.payment_status === 'paid') {
                 for (const item of allItems) {
-                    await conn.execute(
-                        `INSERT INTO transactions (
-                          order_id,
-                          order_item_id,
-                          customer_id,
-                          vendor_id,
-                          transaction_type,
-                          gross_amount,
-                          commission_amount,
-                          payout_amount,
-                          refund_amount,
-                          payment_method,
-                          reference,
-                          status
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                        [
-                            orderId,
-                            item.id,
-                            user.id,
-                            item.vendor_id,
-                            'refund',
-                            Number(item.line_total),
-                            0,
-                            0,
-                            Number(item.line_total),
-                            order.payment_method,
-                            `REFUND-${orderId}-${item.id}`,
-                            'success'
-                        ]
+                    const refundReference = `REFUND-${orderId}-${item.id}`
+                    const [refundRows] = await conn.query<any[]>(
+                        'SELECT id FROM transactions WHERE transaction_type = ? AND reference = ? LIMIT 1 FOR UPDATE',
+                        ['refund', refundReference]
                     )
+
+                    if (!refundRows.length) {
+                        await conn.execute(
+                            `INSERT INTO transactions (
+                              order_id,
+                              order_item_id,
+                              customer_id,
+                              vendor_id,
+                              transaction_type,
+                              gross_amount,
+                              commission_amount,
+                              payout_amount,
+                              refund_amount,
+                              payment_method,
+                              reference,
+                              status
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            [
+                                orderId,
+                                item.id,
+                                user.id,
+                                item.vendor_id,
+                                'refund',
+                                Number(item.line_total),
+                                0,
+                                0,
+                                Number(item.line_total),
+                                order.payment_method,
+                                refundReference,
+                                'success'
+                            ]
+                        )
+                    }
+
+                    const commissionToReverse = Number(item.platform_commission || 0)
+                    if (commissionToReverse > 0) {
+                        const reverseCommissionReference = `${refundReference}-COMM-REV`
+                        const [commissionRows] = await conn.query<any[]>(
+                            'SELECT id FROM transactions WHERE transaction_type = ? AND reference = ? LIMIT 1 FOR UPDATE',
+                            ['commission', reverseCommissionReference]
+                        )
+
+                        if (!commissionRows.length) {
+                            await conn.execute(
+                                `INSERT INTO transactions (
+                                  order_id,
+                                  order_item_id,
+                                  customer_id,
+                                  vendor_id,
+                                  transaction_type,
+                                  gross_amount,
+                                  commission_amount,
+                                  payout_amount,
+                                  refund_amount,
+                                  payment_method,
+                                  reference,
+                                  status
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                [
+                                    orderId,
+                                    item.id,
+                                    user.id,
+                                    item.vendor_id,
+                                    'commission',
+                                    0,
+                                    -commissionToReverse,
+                                    0,
+                                    0,
+                                    order.payment_method,
+                                    reverseCommissionReference,
+                                    'success'
+                                ]
+                            )
+                        }
+                    }
+
+                    const payoutToReverse = Number(item.vendor_payout || 0)
+                    if (payoutToReverse > 0) {
+                        const reversePayoutReference = `${refundReference}-PAYOUT-REV`
+                        const [payoutRows] = await conn.query<any[]>(
+                            'SELECT id FROM transactions WHERE transaction_type = ? AND reference = ? LIMIT 1 FOR UPDATE',
+                            ['vendor_payout', reversePayoutReference]
+                        )
+
+                        if (!payoutRows.length) {
+                            await conn.execute(
+                                `INSERT INTO transactions (
+                                  order_id,
+                                  order_item_id,
+                                  customer_id,
+                                  vendor_id,
+                                  transaction_type,
+                                  gross_amount,
+                                  commission_amount,
+                                  payout_amount,
+                                  refund_amount,
+                                  payment_method,
+                                  reference,
+                                  status
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                [
+                                    orderId,
+                                    item.id,
+                                    user.id,
+                                    item.vendor_id,
+                                    'vendor_payout',
+                                    0,
+                                    0,
+                                    -payoutToReverse,
+                                    0,
+                                    order.payment_method,
+                                    reversePayoutReference,
+                                    'success'
+                                ]
+                            )
+                        }
+                    }
                 }
 
                 await conn.execute('UPDATE orders SET payment_status = ? WHERE id = ?', ['refunded', orderId])
@@ -216,6 +316,16 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
             if (!RETURNABLE_STATUSES.has(item.status)) {
                 await conn.rollback()
                 return NextResponse.json({ error: 'Return not allowed for this item status' }, { status: 400 })
+            }
+
+            const [returnRows] = await conn.query<any[]>(
+                'SELECT id, status FROM returns_refunds WHERE order_item_id = ? LIMIT 1 FOR UPDATE',
+                [itemId]
+            )
+            const existingReturn = returnRows[0]
+            if (existingReturn && String(existingReturn.status || '').toLowerCase() !== 'rejected') {
+                await conn.rollback()
+                return NextResponse.json({ error: 'Return already exists for this item' }, { status: 400 })
             }
 
             const reason = String(body?.reason || 'Customer requested return').trim()

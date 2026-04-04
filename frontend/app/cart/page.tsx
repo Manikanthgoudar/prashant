@@ -189,8 +189,9 @@ export default function Cart() {
         ])
 
         setItems(cartRes.items || [])
-        setAddresses(addressRes.addresses || [])
-        const defaultAddress = (addressRes.addresses || []).find((item: Address) => Number(item.is_default) === 1)
+        const addressList = addressRes.addresses || []
+        setAddresses(addressList)
+        const defaultAddress = addressList.find((item: Address) => Number(item.is_default) === 1) || addressList[0]
         if (defaultAddress) {
           setSelectedAddressId(Number(defaultAddress.id))
         }
@@ -210,6 +211,9 @@ export default function Cart() {
 
   const deliveryCharge = subtotal >= 500 ? 0 : 50
   const total = subtotal + deliveryCharge - couponDiscount
+  const hasSelectedSavedAddress =
+    selectedAddressId !== null && addresses.some((entry) => Number(entry.id) === Number(selectedAddressId))
+  const requiresAddressForm = !hasSelectedSavedAddress
 
   const refreshCart = async () => {
     if (!token) return
@@ -275,10 +279,14 @@ export default function Cart() {
 
   const makeSureAddress = async (): Promise<number | null> => {
     if (selectedAddressId) {
-      if (saveAsDefault) {
-        await setDefaultAddress(token, selectedAddressId)
+      const exists = addresses.some((item) => Number(item.id) === Number(selectedAddressId))
+      if (exists) {
+        if (saveAsDefault) {
+          await setDefaultAddress(token, selectedAddressId)
+        }
+        return selectedAddressId
       }
-      return selectedAddressId
+      setSelectedAddressId(null)
     }
 
     await saveNewAddress()
@@ -309,6 +317,8 @@ export default function Cart() {
         return
       }
 
+      const selectedAddress = addresses.find((entry) => Number(entry.id) === Number(addressId))
+
       const payload = {
         address_id: addressId,
         items: items.map((item) => ({
@@ -317,7 +327,7 @@ export default function Cart() {
           quantity: item.quantity
         })),
         payment_method: paymentMethod,
-        contact_number: address.phone || undefined,
+        contact_number: selectedAddress?.phone || address.phone || undefined,
         order_notes: notes || undefined,
         coupon_discount: couponDiscount,
         billing_same_as_delivery: billingSameAsDelivery
@@ -526,16 +536,16 @@ export default function Cart() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 <div className="input-group" style={{ marginBottom: 0 }}>
                   <label>Full Name *</label>
-                  <input className="input-field" required value={address.full_name} onChange={(e) => setAddress({ ...address, full_name: e.target.value })} placeholder="John Doe" />
+                  <input className="input-field" required={requiresAddressForm} value={address.full_name} onChange={(e) => setAddress({ ...address, full_name: e.target.value })} placeholder="John Doe" />
                 </div>
                 <div className="input-group" style={{ marginBottom: 0 }}>
                   <label>Phone Number *</label>
-                  <input className="input-field" required type="tel" value={address.phone} onChange={(e) => setAddress({ ...address, phone: e.target.value })} placeholder="+91 98765 43210" />
+                  <input className="input-field" required={requiresAddressForm} type="tel" value={address.phone} onChange={(e) => setAddress({ ...address, phone: e.target.value })} placeholder="+91 98765 43210" />
                 </div>
               </div>
               <div className="input-group" style={{ marginBottom: 0 }}>
                 <label>Address Line 1 *</label>
-                <input className="input-field" required value={address.line1} onChange={(e) => setAddress({ ...address, line1: e.target.value })} placeholder="House no., Building, Street" />
+                <input className="input-field" required={requiresAddressForm} value={address.line1} onChange={(e) => setAddress({ ...address, line1: e.target.value })} placeholder="House no., Building, Street" />
               </div>
               <div className="input-group" style={{ marginBottom: 0 }}>
                 <label>Address Line 2</label>
@@ -544,15 +554,15 @@ export default function Cart() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
                 <div className="input-group" style={{ marginBottom: 0 }}>
                   <label>City *</label>
-                  <input className="input-field" required value={address.city} onChange={(e) => setAddress({ ...address, city: e.target.value })} placeholder="Mumbai" />
+                  <input className="input-field" required={requiresAddressForm} value={address.city} onChange={(e) => setAddress({ ...address, city: e.target.value })} placeholder="Mumbai" />
                 </div>
                 <div className="input-group" style={{ marginBottom: 0 }}>
                   <label>State *</label>
-                  <input className="input-field" required value={address.state} onChange={(e) => setAddress({ ...address, state: e.target.value })} placeholder="Maharashtra" />
+                  <input className="input-field" required={requiresAddressForm} value={address.state} onChange={(e) => setAddress({ ...address, state: e.target.value })} placeholder="Maharashtra" />
                 </div>
                 <div className="input-group" style={{ marginBottom: 0 }}>
                   <label>Pincode *</label>
-                  <input className="input-field" required value={address.pincode} onChange={(e) => setAddress({ ...address, pincode: e.target.value })} placeholder="400001" />
+                  <input className="input-field" required={requiresAddressForm} value={address.pincode} onChange={(e) => setAddress({ ...address, pincode: e.target.value })} placeholder="400001" />
                 </div>
               </div>
 

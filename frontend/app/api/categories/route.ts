@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic'
 export async function GET() {
     try {
         const categories = await query<any>(
-                        `SELECT id, name, slug, icon, description, parent_id
+            `SELECT id, name, slug, icon, description, parent_id
                          FROM categories
                          ORDER BY
                              CASE

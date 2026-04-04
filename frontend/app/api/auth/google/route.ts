@@ -7,7 +7,33 @@ import { hashPassword, signUserToken } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
-const googleClientId = process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
+function normalizedEnvValue(value: string | undefined): string {
+    return String(value || '')
+        .trim()
+        .replace(/^['"]|['"]$/g, '')
+}
+
+function isGoogleClientId(value: string): boolean {
+    return value.endsWith('.apps.googleusercontent.com')
+}
+
+function resolveGoogleClientId(): string {
+    const serverClientId = normalizedEnvValue(process.env.GOOGLE_CLIENT_ID)
+    const publicClientId = normalizedEnvValue(process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID)
+
+    if (isGoogleClientId(serverClientId)) return serverClientId
+    if (isGoogleClientId(publicClientId)) return publicClientId
+    return ''
+}
+
+function resolveMaxIdTokenExpirySeconds(): number {
+    const parsed = Number(process.env.GOOGLE_ID_TOKEN_MAX_EXPIRY_SECONDS || 172800)
+    if (Number.isNaN(parsed)) return 172800
+    return Math.min(604800, Math.max(3600, Math.floor(parsed)))
+}
+
+const googleClientId = resolveGoogleClientId()
+const maxIdTokenExpirySeconds = resolveMaxIdTokenExpirySeconds()
 const oauthClient = googleClientId ? new OAuth2Client(googleClientId) : null
 
 type UserRow = RowDataPacket & {
@@ -35,7 +61,7 @@ async function fetchUserByEmail(email: string): Promise<UserRow | null> {
 export async function POST(req: NextRequest) {
     if (!oauthClient || !googleClientId) {
         return NextResponse.json(
-            { error: 'Google auth is not configured. Set GOOGLE_CLIENT_ID in .env' },
+            { error: 'Google auth is not configured. Set GOOGLE_CLIENT_ID (Web Client ID) in .env' },
             { status: 500 }
         )
     }
@@ -50,7 +76,8 @@ export async function POST(req: NextRequest) {
     try {
         const ticket = await oauthClient.verifyIdToken({
             idToken,
-            audience: googleClientId
+            audience: googleClientId,
+            maxExpiry: maxIdTokenExpirySeconds
         })
 
         const payload = ticket.getPayload()
@@ -114,7 +141,19 @@ export async function POST(req: NextRequest) {
             }
         })
     } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error'
         console.error('Google auth failed', err)
+
+        if (message.toLowerCase().includes('expiration time too far in future')) {
+            return NextResponse.json(
+                {
+                    error:
+                        'Google token rejected due clock skew. Please retry; if issue persists, sync system time or increase GOOGLE_ID_TOKEN_MAX_EXPIRY_SECONDS.'
+                },
+                { status: 401 }
+            )
+        }
+
         return NextResponse.json({ error: 'Unable to sign in with Google' }, { status: 401 })
     }
 }

@@ -73,10 +73,18 @@ export async function GET(req: NextRequest) {
                 oi.line_total,
                 oi.platform_commission,
                 oi.vendor_payout,
-                oi.status,
+                                COALESCE(
+                                    CASE
+                                        WHEN rr.status = 'requested' THEN 'return_requested'
+                                        WHEN rr.status IN ('approved', 'completed') THEN 'returned'
+                                        WHEN rr.status = 'refunded' THEN 'refunded'
+                                        ELSE NULL
+                                    END,
+                                    oi.status
+                                ) AS status,
                 oi.mock_tracking_number,
-                oi.return_reason,
-                oi.refund_amount,
+                                COALESCE(rr.reason, oi.return_reason) AS return_reason,
+                                CASE WHEN rr.status = 'refunded' THEN COALESCE(rr.refund_amount, oi.refund_amount) ELSE oi.refund_amount END AS refund_amount,
                 p.image_url AS product_image,
                 u.name AS vendor_name,
                 COALESCE(v.store_name, u.name) AS vendor_store_name
@@ -84,6 +92,7 @@ export async function GET(req: NextRequest) {
                JOIN products p ON p.id = oi.product_id
                JOIN users u ON u.id = oi.vendor_id
                LEFT JOIN vendors v ON v.user_id = oi.vendor_id
+                             LEFT JOIN returns_refunds rr ON rr.order_item_id = oi.id
                WHERE oi.order_id IN (${orderIds.map(() => '?').join(',')})`,
             orderIds
         )

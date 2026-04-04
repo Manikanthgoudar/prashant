@@ -60,6 +60,14 @@ export default function AdminDashboardPage() {
 
     const summary = dashboard.summary || {}
 
+    const getTransactionAmount = (transaction: any) => {
+        const type = String(transaction?.transaction_type || '').toLowerCase()
+        if (type === 'commission') return Number(transaction?.commission_amount || 0)
+        if (type === 'vendor_payout') return Number(transaction?.payout_amount || 0)
+        if (type === 'refund') return Number(transaction?.refund_amount || 0)
+        return Number(transaction?.gross_amount || 0)
+    }
+
     return (
         <main className="container" style={{ padding: '2rem 2rem 4rem' }}>
             <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>Admin Dashboard</h1>
@@ -126,14 +134,19 @@ export default function AdminDashboardPage() {
                 <div style={{ maxHeight: '350px', overflowY: 'auto', display: 'grid', gap: '0.4rem' }}>
                     {(dashboard.recent_transactions || []).slice(0, 120).map((transaction: any) => (
                         <div key={transaction.id} style={{ borderBottom: '1px solid var(--border-light)', paddingBottom: '0.4rem' }}>
+                            {(() => {
+                                const amount = getTransactionAmount(transaction)
+                                return (
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
                                 <span style={{ textTransform: 'capitalize' }}>
                                     {transaction.transaction_type} · {transaction.vendor_store_name || transaction.vendor_name || 'Platform'}
                                 </span>
-                                <span>
-                                    Rs {Math.floor(Number(transaction.gross_amount || transaction.commission_amount || transaction.payout_amount || transaction.refund_amount || 0)).toLocaleString()}
+                                <span style={{ color: amount < 0 ? 'var(--danger)' : 'inherit' }}>
+                                    Rs {Math.round(amount).toLocaleString()}
                                 </span>
                             </div>
+                                )
+                            })()}
                             <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
                                 Order #{transaction.order_id} · {transaction.customer_name || 'N/A'} · {transaction.created_at}
                             </div>

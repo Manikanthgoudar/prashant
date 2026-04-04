@@ -23,23 +23,12 @@ export default function RootLayout({
       <body>
         <Navbar />
         {children}
-        
+
         <footer>
           {/* Back to top */}
           <a href="#" className="footer-back-to-top">
             Back to top
           </a>
-
-          {/* Sign in section */}
-          <div className="footer-signin-section">
-            <p>See personalized recommendations</p>
-            <Link href="/signup" className="footer-signin-btn">
-              Sign in
-            </Link>
-            <p style={{ fontSize: '0.82rem', marginTop: '0.75rem', color: '#999' }}>
-              New customer? <Link href="/signup" style={{ color: '#6EACDA', textDecoration: 'underline' }}>Start here.</Link>
-            </p>
-          </div>
 
           {/* Main footer grid */}
           <div className="container">
